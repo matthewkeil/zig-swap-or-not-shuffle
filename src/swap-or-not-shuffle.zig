@@ -53,95 +53,101 @@ const ShufflingManager = struct {
     }
 };
 
-// pub fn shuffleList(
-//     allocator: *std.mem.Allocator,
-//     input: []const u32,
-//     seed: []const u8,
-//     rounds: i32,
-//     forwards: bool,
-// ) ![]u32 {
-//     if (rounds < 0 or rounds > @as(i32, std.meta.maxValue(u8))) {
-//         return ShufflingErrorCode.InvalidNumberOfRounds;
-//     }
+pub fn innerShuffleList(
+    allocator: *std.mem.Allocator,
+    input: []const u32,
+    seed: []const u8,
+    rounds: i32,
+    forwards: bool,
+) ![]u32 {
+    if (rounds < 0 or rounds > @as(i32, std.meta.maxValue(u8))) {
+        return ShufflingErrorCode.InvalidNumberOfRounds;
+    }
 
-//     var list = try allocator.alloc(u32, input.len);
-//     std.mem.copy(u32, list, input);
+    var list = try allocator.alloc(u32, input.len);
+    std.mem.copy(u32, list, input);
 
-//     if (list.len <= 1) return list;
+    if (list.len <= 1) return list;
 
-//     if (list.len > @as(usize, std.meta.maxValue(u32))) {
-//         return ShufflingErrorCode.InvalidActiveIndicesLength;
-//     }
+    if (list.len > @as(usize, std.meta.maxValue(u32))) {
+        return ShufflingErrorCode.InvalidActiveIndicesLength;
+    }
 
-//     var manager = try ShufflingManager.init(seed);
+    var manager = try ShufflingManager.init(seed);
 
-//     var currentRound: u8 = if (forwards) 0 else @truncate(u8, rounds - 1);
+    var currentRound: u8 = if (forwards) 0 else @truncate(rounds - 1);
 
-//     while (true) {
-//         manager.setRound(currentRound);
+    while (true) {
+        manager.setRound(currentRound);
 
-//         const pivot = @mod(manager.rawPivot(), list.len);
-//         var mirror = (pivot + 1) >> 1;
+        const pivot = @mod(manager.rawPivot(), list.len);
+        var mirror = (pivot + 1) >> 1;
 
-//         manager.mixInPosition(pivot >> 8);
-//         var source = manager.hash();
-//         var byteV = source[(pivot & 0xff) >> 3];
+        manager.mixInPosition(pivot >> 8);
+        var source = manager.hash();
+        var byteV = source[(pivot & 0xff) >> 3];
 
-//         for (var i: usize = 0; i < mirror; i += 1) {
-//             const j = pivot - i;
+        var i: usize = 0;
+        while (i < mirror) {
+            const j = pivot - i;
 
-//             if ((j & 0xff) == 0xff) {
-//                 manager.mixInPosition(j >> 8);
-//                 source = manager.hash();
-//             }
+            if ((j & 0xff) == 0xff) {
+                manager.mixInPosition(j >> 8);
+                source = manager.hash();
+            }
 
-//             if ((j & 0x07) == 0x07) {
-//                 byteV = source[(j & 0xff) >> 3];
-//             }
+            if ((j & 0x07) == 0x07) {
+                byteV = source[(j & 0xff) >> 3];
+            }
 
-//             const bitV = (byteV >> (j & 0x07)) & 0x01;
-//             if (bitV == 1) {
-//                 const temp = list[i];
-//                 list[i] = list[j];
-//                 list[j] = temp;
-//             }
-//         }
+            const bitV = (byteV >> (j & 0x07)) & 0x01;
+            if (bitV == 1) {
+                const temp = list[i];
+                list[i] = list[j];
+                list[j] = temp;
+            }
 
-//         mirror = (pivot + list.len + 1) >> 1;
-//         const end = list.len - 1;
+            i += 1;
+        }
 
-//         manager.mixInPosition(end >> 8);
-//         source = manager.hash();
-//         byteV = source[(end & 0xff) >> 3];
+        mirror = (pivot + list.len + 1) >> 1;
+        const end = list.len - 1;
 
-//         for (var i = pivot + 1; i < mirror; i += 1) {
-//             const j = end - (i - (pivot + 1));
+        manager.mixInPosition(end >> 8);
+        source = manager.hash();
+        byteV = source[(end & 0xff) >> 3];
 
-//             if ((j & 0xff) == 0xff) {
-//                 manager.mixInPosition(j >> 8);
-//                 source = manager.hash();
-//             }
+        i = pivot + 1;
+        while (i < mirror) {
+            const j = end - (i - (pivot + 1));
 
-//             if ((j & 0x07) == 0x07) {
-//                 byteV = source[(j & 0xff) >> 3];
-//             }
+            if ((j & 0xff) == 0xff) {
+                manager.mixInPosition(j >> 8);
+                source = manager.hash();
+            }
 
-//             const bitV = (byteV >> (j & 0x07)) & 0x01;
-//             if (bitV == 1) {
-//                 const temp = list[i];
-//                 list[i] = list[j];
-//                 list[j] = temp;
-//             }
-//         }
+            if ((j & 0x07) == 0x07) {
+                byteV = source[(j & 0xff) >> 3];
+            }
 
-//         if (forwards) {
-//             currentRound += 1;
-//             if (currentRound == @truncate(u8, rounds)) break;
-//         } else {
-//             if (currentRound == 0) break;
-//             currentRound -= 1;
-//         }
-//     }
+            const bitV = (byteV >> (j & 0x07)) & 0x01;
+            if (bitV == 1) {
+                const temp = list[i];
+                list[i] = list[j];
+                list[j] = temp;
+            }
 
-//     return list;
-// }
+            i += 1;
+        }
+
+        if (forwards) {
+            currentRound += 1;
+            if (currentRound == @as(u8, @truncate(rounds))) break;
+        } else {
+            if (currentRound == 0) break;
+            currentRound -= 1;
+        }
+    }
+
+    return list;
+}
