@@ -11,12 +11,10 @@ const PIVOT_VIEW_SIZE = SEED_SIZE + ROUND_SIZE;
 const TOTAL_SIZE = SEED_SIZE + ROUND_SIZE + POSITION_WINDOW_SIZE;
 
 pub const ShufflingErrorCode = error{
-    InvalidSeedLength,
     InvalidActiveIndicesLength,
-    InvalidNumberOfRounds,
 };
 
-fn hashFixed(data: []const u8) ![Sha256.digest_length]u8 {
+fn hashFixed(data: []const u8) [Sha256.digest_length]u8 {
     var sha256 = Sha256.init(.{});
     sha256.update(data);
     return sha256.finalResult();
@@ -26,13 +24,10 @@ fn hashFixed(data: []const u8) ![Sha256.digest_length]u8 {
 const ShufflingManager = struct {
     buf: [TOTAL_SIZE]u8,
 
-    pub fn init(seed: []const u8) !ShufflingManager {
-        if (seed.len != SEED_SIZE) {
-            return ShufflingErrorCode.InvalidSeedLength;
-        }
+    pub fn init(seed: [SEED_SIZE]u8) ShufflingManager {
         // TODO: @matthewkeil is there a way to avoid this copy here?
         var buf: [TOTAL_SIZE]u8 = [_]u8{0} ** TOTAL_SIZE;
-        std.mem.copy(u8, buf[0..SEED_SIZE], seed);
+        std.mem.copyForwards(u8, buf[0..SEED_SIZE], &seed);
         return ShufflingManager{ .buf = buf };
     }
 
@@ -41,11 +36,13 @@ const ShufflingManager = struct {
     }
 
     pub fn rawPivot(self: *const ShufflingManager) u64 {
-        return std.mem.readInt(u64, hashFixed(self.buf[0..PIVOT_VIEW_SIZE]), .little);
+        return std.mem.readInt(u64, hashFixed(self.buf[0..PIVOT_VIEW_SIZE])[0..8], .little);
     }
 
     pub fn mixInPosition(self: *ShufflingManager, position: usize) void {
-        std.mem.copy(u8, self.buf[PIVOT_VIEW_SIZE..], @bitCast(position));
+        var position_bytes: [POSITION_WINDOW_SIZE]u8 = undefined;
+        std.mem.writeInt(u32, &position_bytes, @intCast(position), .little);
+        std.mem.copyForwards(u8, self.buf[PIVOT_VIEW_SIZE..], &position_bytes);
     }
 
     pub fn hash(self: *const ShufflingManager) [32]u8 {
@@ -54,33 +51,25 @@ const ShufflingManager = struct {
 };
 
 pub fn innerShuffleList(
-    allocator: *std.mem.Allocator,
-    input: []const u32,
-    seed: []const u8,
-    rounds: i32,
+    input: []u32,
+    seed: [SEED_SIZE]u8,
+    rounds: u8,
     forwards: bool,
-) ![]u32 {
-    if (rounds < 0 or rounds > @as(i32, std.meta.maxValue(u8))) {
-        return ShufflingErrorCode.InvalidNumberOfRounds;
-    }
+) ShufflingErrorCode![]u32 {
+    if (input.len <= 1) return input;
 
-    var list = try allocator.alloc(u32, input.len);
-    std.mem.copy(u32, list, input);
-
-    if (list.len <= 1) return list;
-
-    if (list.len > @as(usize, std.meta.maxValue(u32))) {
+    if (input.len > @as(usize, std.math.maxInt(u32))) {
         return ShufflingErrorCode.InvalidActiveIndicesLength;
     }
 
-    var manager = try ShufflingManager.init(seed);
+    var manager = ShufflingManager.init(seed);
 
     var currentRound: u8 = if (forwards) 0 else @truncate(rounds - 1);
 
     while (true) {
         manager.setRound(currentRound);
 
-        const pivot = @mod(manager.rawPivot(), list.len);
+        const pivot = @mod(manager.rawPivot(), input.len);
         var mirror = (pivot + 1) >> 1;
 
         manager.mixInPosition(pivot >> 8);
@@ -100,18 +89,18 @@ pub fn innerShuffleList(
                 byteV = source[(j & 0xff) >> 3];
             }
 
-            const bitV = (byteV >> (j & 0x07)) & 0x01;
+            const bitV = (byteV >> (@as(u3, @truncate(j)) & 0x07)) & 0x01;
             if (bitV == 1) {
-                const temp = list[i];
-                list[i] = list[j];
-                list[j] = temp;
+                const temp = input[i];
+                input[i] = input[j];
+                input[j] = temp;
             }
 
             i += 1;
         }
 
-        mirror = (pivot + list.len + 1) >> 1;
-        const end = list.len - 1;
+        mirror = (pivot + input.len + 1) >> 1;
+        const end = input.len - 1;
 
         manager.mixInPosition(end >> 8);
         source = manager.hash();
@@ -130,11 +119,11 @@ pub fn innerShuffleList(
                 byteV = source[(j & 0xff) >> 3];
             }
 
-            const bitV = (byteV >> (j & 0x07)) & 0x01;
+            const bitV = (byteV >> (@as(u3, @truncate(j)) & 0x07)) & 0x01;
             if (bitV == 1) {
-                const temp = list[i];
-                list[i] = list[j];
-                list[j] = temp;
+                const temp = input[i];
+                input[i] = input[j];
+                input[j] = temp;
             }
 
             i += 1;
@@ -142,12 +131,30 @@ pub fn innerShuffleList(
 
         if (forwards) {
             currentRound += 1;
-            if (currentRound == @as(u8, @truncate(rounds))) break;
+            if (currentRound == rounds) break;
         } else {
             if (currentRound == 0) break;
             currentRound -= 1;
         }
     }
 
-    return list;
+    return input;
+}
+
+pub fn unshuffleList(input: []u32, seed: [32]u8, rounds: u8) ShufflingErrorCode![]u32 {
+    return innerShuffleList(input, seed, rounds, false);
+}
+
+test "unshuffleList" {
+    // calculated using the reference implementation (@chainsafe/swap-or-not-shuffle)
+    var input = [_]u32{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
+    const seed = [_]u8{0} ** SEED_SIZE;
+    const rounds = 10;
+    const expected = [_]u32{
+        9, 5, 7, 4, 1,
+        3, 0, 8, 2, 6,
+    };
+
+    const result = try unshuffleList(&input, seed, rounds);
+    try std.testing.expectEqualSlices(u32, &expected, result);
 }
