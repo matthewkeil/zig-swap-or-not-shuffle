@@ -51,6 +51,10 @@
         //    // actually used.
         //    .lazy = false,
         //},
+        .yaml = .{
+            .url = "https://github.com/kubkon/zig-yaml/archive/bd6a1847857b9bcf45aa9b5328ab7bb067231e0d.tar.gz",
+            .hash = "1220463f2eba454986fced45127dbc9d3edb95f77759c953939031177497116315cc",
+        },
     },
 
     // Specifies the set of files and directories that are included in this package.
