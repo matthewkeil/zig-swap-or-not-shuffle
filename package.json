@@ -5,8 +5,9 @@
   "author": "Matthew Keil",
   "scripts": {
     "build": "tsc",
-    "download-spec-tests": "node --loader=ts-node/esm test/spec/downloadTests.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "download-spec-tests": "node --loader=ts-node/esm test/utils/downloadTests.ts",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test:spec": "zig test -Dlog-level=debug test/spec.test.zig"
   },
   "devDependencies": {
     "@lodestar/spec-test-util": "^1.23.1",
